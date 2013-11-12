@@ -15,7 +15,7 @@ namespace Tests
         [Test]
         public void CanGetAllTextFilesInAllSubdirs()
         {
-            const string pattern = "**/*.txt";
+            var pattern = Path.Combine("**", "*.txt");
             var matches = GetMatches(pattern);
             matches.Count.Should().Be(5);
         }
@@ -23,7 +23,7 @@ namespace Tests
         [Test]
         public void CanGetAllTextFilesThatStartWithFileInAllSubdirs()
         {
-            const string pattern = "**/File*.txt";
+            var pattern = Path.Combine("**", "File*.txt");
             var matches = GetMatches(pattern);
             matches.Count.Should().Be(4);
         }
@@ -31,14 +31,14 @@ namespace Tests
         [Test]
         public void CanGetAllTextFilesThatStartWithFileInSubDirsThatStartWithDir()
         {
-            const string pattern = "**/Dir?/File*.txt";
+            var pattern = Path.Combine("**", "Dir?", "File*.txt");
             var matches = GetMatches(pattern);
             matches.Count.Should().Be(4);
         }
         [Test]
         public void CanGetZeroTextFilesThatStartWithFileInSubDirsThatStartWithNonExistentName()
         {
-            const string pattern = "**/WrongDir*/File*.txt";
+            var pattern = Path.Combine("**/WrongDir*", "File*.txt");
             var matches = GetMatches(pattern);
             matches.Count.Should().Be(0);
         }
@@ -46,7 +46,7 @@ namespace Tests
         [Test]
         public void CanGetAllTextFilesNamedOtherFileInSubdirDirA()
         {
-            const string pattern = "**/dirA/OtherFile?.*";
+            var pattern = Path.Combine("**", "dirA", "OtherFile?.*");
             var matches = GetMatches(pattern);
             matches.Count.Should().Be(2);
         }
@@ -54,7 +54,7 @@ namespace Tests
         [Test]
         public void CanGetAllTextFilesNamedOtherFileLogInSubdirDirA()
         {
-            const string pattern = "**/dirA/OtherFile1.log";
+            var pattern = Path.Combine("**", "dirA", "OtherFile1.log");
             var matches = GetMatches(pattern);
             matches.Count.Should().Be(1);
             matches.First().Should().BeEquivalentTo(GetGlobTestDir().Replace("\\", "/") + "/dirA/OtherFile1.log");
@@ -62,8 +62,7 @@ namespace Tests
 
         private static List<string> GetMatches(string pattern)
         {
-            var globTestDir = GetGlobTestDir();
-            globTestDir = globTestDir.Replace("\\", "/") + "/";
+            var globTestDir = GetGlobTestDir() + Path.DirectorySeparatorChar;
             var matches = Glob.GetMatches(string.Format("{0}" + pattern, globTestDir)).ToList();
             return matches;
         }

@@ -200,6 +200,8 @@ namespace GlobDir
                 yield break;
             }
             var noEscape = ((flags & Constants.NoEscape) != 0);
+            if (noEscape && Path.DirectorySeparatorChar == '\\')
+                pattern = pattern.Replace('\\', '/');
             var groups = UngroupGlobs(pattern, noEscape);
             if (groups.Length == 0)
             {
