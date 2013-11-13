@@ -57,7 +57,7 @@ namespace Tests
             var pattern = Path.Combine("**", "dirA", "OtherFile1.log");
             var matches = GetMatches(pattern);
             matches.Count.Should().Be(1);
-            matches.First().Should().BeEquivalentTo(GetGlobTestDir().Replace("\\", "/") + "/dirA/OtherFile1.log");
+            matches.First().Should().BeEquivalentTo(Path.Combine(GetGlobTestDir(), "dirA", "OtherFile1.log"));
         }
 
         private static List<string> GetMatches(string pattern)
