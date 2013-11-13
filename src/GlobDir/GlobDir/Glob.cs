@@ -193,6 +193,9 @@ namespace GlobDir
             return ungrouper.Flatten();
         }
 
+        static readonly string DoubleDirectorySeparatorChar = new string(Path.DirectorySeparatorChar, 2);
+        static readonly string SingleDirectorySeparatorChar = new string(Path.DirectorySeparatorChar, 1);
+
         private static IEnumerable<string> GetMatches(PlatformAdaptationLayer pal, string pattern, Constants flags)
         {
             if (pattern.Length == 0)
@@ -213,7 +216,7 @@ namespace GlobDir
                 var matcher = new GlobMatcher(pal, group, flags);
                 foreach (var filename in matcher.DoGlob())
                 {
-                    yield return filename.Replace("//", "/");
+                    yield return filename.Replace(DoubleDirectorySeparatorChar, SingleDirectorySeparatorChar);
                 }
             }
         }
@@ -334,15 +337,21 @@ namespace GlobDir
                 {
                     path = path.Substring(2);
                 }
-
                 if (pal.DirectoryExists(path))
                 {
-                    result.Add(path);
+                    AddResult(path);
                 }
                 else if (!dirOnly && pal.FileExists(path))
                 {
                     result.Add(path);
                 }
+            }
+
+            private void AddResult(string path)
+            {
+                result.Add(Path.DirectorySeparatorChar != '/'
+                           ? path.Replace('/', Path.DirectorySeparatorChar)
+                           : path);
             }
 
             private static string Unescape(string path, int start)
