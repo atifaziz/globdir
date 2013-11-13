@@ -343,7 +343,7 @@ namespace GlobDir
                 }
                 else if (!dirOnly && pal.FileExists(path))
                 {
-                    result.Add(path);
+                    AddResult(path);
                 }
             }
 
