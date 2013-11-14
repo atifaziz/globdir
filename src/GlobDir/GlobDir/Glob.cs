@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -193,10 +194,7 @@ namespace GlobDir
             return ungrouper.Flatten();
         }
 
-        static readonly string DoubleDirectorySeparatorChar = new string(Path.DirectorySeparatorChar, 2);
-        static readonly string SingleDirectorySeparatorChar = new string(Path.DirectorySeparatorChar, 1);
-
-        private static IEnumerable<string> GetMatches(PlatformAdaptationLayer pal, string pattern, Constants flags)
+        internal static IEnumerable<T> GetMatches<T>(PlatformAdaptationLayer<T> pal, string pattern, Constants flags = Constants.IgnoreCase | Constants.PathName | Constants.NoEscape)
         {
             if (pattern.Length == 0)
             {
@@ -213,15 +211,15 @@ namespace GlobDir
 
             foreach (var group in groups)
             {
-                var matcher = new GlobMatcher(pal, group, flags);
+                var matcher = new GlobMatcher<T>(pal, group, flags);
                 foreach (var filename in matcher.DoGlob())
                 {
-                    yield return filename.Replace(DoubleDirectorySeparatorChar, SingleDirectorySeparatorChar);
+                    yield return filename;
                 }
             }
         }
 
-        public static IEnumerable<string> GetMatches(string pattern, Constants flags = Constants.IgnoreCase | Constants.PathName | Constants.NoEscape)
+        public static IEnumerable<FileSystemInfo> GetMatches(string pattern, Constants flags = Constants.IgnoreCase | Constants.PathName | Constants.NoEscape)
         {
             return GetMatches(new PlatformAdaptationLayer(), pattern, flags);
         }
@@ -255,21 +253,21 @@ namespace GlobDir
             }
         }
 
-        private sealed class GlobMatcher
+        private sealed class GlobMatcher<T>
         {
             private readonly bool dirOnly;
             private readonly Constants flags;
-            private readonly PlatformAdaptationLayer pal;
+            private readonly PlatformAdaptationLayer<T> pal;
             private readonly string pattern;
-            private readonly List<string> result;
+            private readonly List<T> result;
             private bool stripTwo;
 
-            internal GlobMatcher(PlatformAdaptationLayer pal, string pattern, Constants flags)
+            internal GlobMatcher(PlatformAdaptationLayer<T> pal, string pattern, Constants flags)
             {
                 this.pal = pal;
                 this.pattern = (pattern == "**") ? "*" : pattern;
                 this.flags = flags | Constants.IgnoreCase;
-                result = new List<string>();
+                result = new List<T>();
                 dirOnly = this.pattern.Substring(this.pattern.Length - 1, 1) == "/";
                 stripTwo = false;
             }
@@ -337,21 +335,15 @@ namespace GlobDir
                 {
                     path = path.Substring(2);
                 }
-                if (pal.DirectoryExists(path))
+                Option item;
+                if ((item = pal.FindDirectory(path, Option.None, Option.Some)).IsSome)
                 {
-                    AddResult(path);
+                    result.Add(item.Value);
                 }
-                else if (!dirOnly && pal.FileExists(path))
+                else if (!dirOnly && (item = pal.FindFile(path, Option.None, Option.Some)).IsSome)
                 {
-                    AddResult(path);
+                    result.Add(item.Value);
                 }
-            }
-
-            private void AddResult(string path)
-            {
-                result.Add(Path.DirectorySeparatorChar != '/'
-                           ? path.Replace('/', Path.DirectorySeparatorChar)
-                           : path);
             }
 
             private static string Unescape(string path, int start)
@@ -381,11 +373,11 @@ namespace GlobDir
                 return unescaped.ToString();
             }
 
-            internal IEnumerable<string> DoGlob()
+            internal IEnumerable<T> DoGlob()
             {
                 if (pattern.Length == 0)
                 {
-                    return new string[] {};
+                    return Enumerable.Empty<T>();
                 }
 
                 var pos = 0;
@@ -413,7 +405,7 @@ namespace GlobDir
 
             private void DoGlob(string baseDirectory, int position, bool isPreviousDoubleStar)
             {
-                if (!pal.DirectoryExists(baseDirectory))
+                if (pal.FindDirectory(baseDirectory, Option.None, Option.Some).IsNone)
                 {
                     return;
                 }
@@ -441,12 +433,13 @@ namespace GlobDir
                     DoGlob(baseDirectory, patternEnd, true);
                 }
 
-                foreach (string file in pal.GetFileSystemEntries(baseDirectory, "*"))
+                foreach (var file in pal.List(baseDirectory, "*"))
                 {
-                    var objectName = Path.GetFileName(file);
+                    var path = pal.GetPath(file);
+                    var objectName = Path.GetFileName(path);
                     if (FnMatch(dirSegment, objectName, flags))
                     {
-                        var canon = file.Replace('\\', '/');
+                        var canon = path.Replace('\\', '/');
                         TestPath(canon, patternEnd, isLastPathSegment);
                         if (doubleStar)
                         {
@@ -472,6 +465,35 @@ namespace GlobDir
                         directory += '/';
                     }
                     TestPath(directory, patternEnd, true);
+                }
+            }
+
+            struct Option
+            {
+                // ReSharper disable once StaticFieldInGenericType
+                public static readonly Option None = new Option(false, default(T));
+                
+                readonly bool _defined;
+                readonly T _value;
+                
+                Option(bool defined, T value)
+                {
+                    _defined = defined;
+                    _value = value;
+                }
+
+                public static Option Some(T value) { return new Option(true, value); }
+
+                public bool IsNone { get { return !IsSome;  } }
+                public bool IsSome { get { return _defined; } }
+
+                public T Value
+                {
+                    get
+                    {
+                        if (!_defined) throw new InvalidOperationException();
+                        return _value;
+                    }
                 }
             }
         }
@@ -683,23 +705,46 @@ namespace GlobDir
                 }
             }
         }
+    }
 
-        private class PlatformAdaptationLayer
+    abstract class PlatformAdaptationLayer<T>
+    {
+        public abstract string GetPath(T item);
+        public IEnumerable<T> List(string path) { return List(path, null); }
+        public abstract IEnumerable<T> List(string path, string searchPattern);
+        public T FindDirectory(string path) { return FindDirectory(path, default(T), e => e); }
+        public abstract TResult FindDirectory<TResult>(string path, TResult missing, Func<T, TResult> resultor);
+        public T FindFile(string path) { return FindFile(path, default(T), e => e); }
+        public abstract TResult FindFile<TResult>(string path, TResult missing, Func<T, TResult> resultor);
+    }
+
+    class PlatformAdaptationLayer : PlatformAdaptationLayer<FileSystemInfo>
+    {
+        public override string GetPath(FileSystemInfo item)
         {
-            public IEnumerable<string> GetFileSystemEntries(string path, string searchPattern)
-            {
-                return Directory.GetFileSystemEntries(path, searchPattern);
-            }
+            return item.FullName;
+        }
 
-            public bool DirectoryExists(string path)
-            {
-                return Directory.Exists(path);
-            }
+        public override IEnumerable<FileSystemInfo> List(string path, string searchPattern)
+        {
+            return new DirectoryInfo(path).EnumerateFileSystemInfos(searchPattern);
+        }
 
-            public bool FileExists(string path)
-            {
-                return File.Exists(path);
-            }
+        public override TResult FindDirectory<TResult>(string path, TResult missing, Func<FileSystemInfo, TResult> resultor)
+        {
+            if (resultor == null) throw new ArgumentNullException("resultor");
+            return ExistingElseNil(new DirectoryInfo(path), missing, resultor);
+        }
+
+        public override TResult FindFile<TResult>(string path, TResult missing, Func<FileSystemInfo, TResult> resultor)
+        {
+            if (resultor == null) throw new ArgumentNullException("resultor");
+            return ExistingElseNil(new FileInfo(path), missing, resultor);
+        }
+
+        static TResult ExistingElseNil<T, TResult>(T fsi, TResult nil, Func<FileSystemInfo, TResult> resultor) where T : FileSystemInfo
+        {
+            return fsi.Exists ? resultor(fsi) : nil;
         }
     }
 }
