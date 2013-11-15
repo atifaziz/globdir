@@ -259,7 +259,6 @@ namespace GlobDir
             private readonly Constants flags;
             private readonly PlatformAdaptationLayer<T> pal;
             private readonly string pattern;
-            private readonly List<T> result;
             private bool stripTwo;
 
             internal GlobMatcher(PlatformAdaptationLayer<T> pal, string pattern, Constants flags)
@@ -267,7 +266,6 @@ namespace GlobDir
                 this.pal = pal;
                 this.pattern = (pattern == "**") ? "*" : pattern;
                 this.flags = flags | Constants.IgnoreCase;
-                result = new List<T>();
                 dirOnly = this.pattern.Substring(this.pattern.Length - 1, 1) == "/";
                 stripTwo = false;
             }
@@ -319,12 +317,11 @@ namespace GlobDir
                 return pattern.Length;
             }
 
-            private void TestPath(string path, int patternEnd, bool isLastPathSegment)
+            private IEnumerable<T> TestPath(string path, int patternEnd, bool isLastPathSegment)
             {
                 if (!isLastPathSegment)
                 {
-                    DoGlob(path, patternEnd, false);
-                    return;
+                    return DoGlob(path, patternEnd, false).SelectMany(rs => rs);
                 }
 
                 if (!NoEscapes)
@@ -338,12 +335,13 @@ namespace GlobDir
                 Option item;
                 if ((item = pal.FindDirectory(path, Option.None, Option.Some)).IsSome)
                 {
-                    result.Add(item.Value);
+                    return new[] { item.Value };
                 }
                 else if (!dirOnly && (item = pal.FindFile(path, Option.None, Option.Some)).IsSome)
                 {
-                    result.Add(item.Value);
+                    return new[] { item.Value };
                 }
+                return Enumerable.Empty<T>();
             }
 
             private static string Unescape(string path, int start)
@@ -388,8 +386,7 @@ namespace GlobDir
                     pos = FindNextSeparator(0, false, out containsWildcard);
                     if (pos == pattern.Length)
                     {
-                        TestPath(pattern, pos, true);
-                        return result;
+                        return TestPath(pattern, pos, true);
                     }
                     if (pos > 0 || pattern[0] == '/')
                     {
@@ -399,15 +396,14 @@ namespace GlobDir
 
                 stripTwo = (baseDirectory == ".");
 
-                DoGlob(baseDirectory, pos, false);
-                return result;
+                return DoGlob(baseDirectory, pos, false).SelectMany(rs => rs);
             }
 
-            private void DoGlob(string baseDirectory, int position, bool isPreviousDoubleStar)
+            private IEnumerable<IEnumerable<T>> DoGlob(string baseDirectory, int position, bool isPreviousDoubleStar)
             {
                 if (pal.FindDirectory(baseDirectory, Option.None, Option.Some).IsNone)
                 {
-                    return;
+                    yield break;
                 }
 
                 bool containsWildcard;
@@ -423,14 +419,15 @@ namespace GlobDir
                 if (!containsWildcard)
                 {
                     var path = baseDirectory + "/" + dirSegment;
-                    TestPath(path, patternEnd, isLastPathSegment);
-                    return;
+                    yield return TestPath(path, patternEnd, isLastPathSegment);
+                    yield break;
                 }
 
                 var doubleStar = dirSegment.Equals("**");
                 if (doubleStar && !isPreviousDoubleStar)
                 {
-                    DoGlob(baseDirectory, patternEnd, true);
+                    foreach (var result in DoGlob(baseDirectory, patternEnd, true))
+                        yield return result;
                 }
 
                 foreach (var file in pal.List(baseDirectory, "*"))
@@ -440,14 +437,15 @@ namespace GlobDir
                     if (FnMatch(dirSegment, objectName, flags))
                     {
                         var canon = path.Replace('\\', '/');
-                        TestPath(canon, patternEnd, isLastPathSegment);
+                        yield return TestPath(canon, patternEnd, isLastPathSegment);
                         if (doubleStar)
                         {
-                            DoGlob(canon, position, true);
+                            foreach (var result in DoGlob(canon, position, true))
+                                yield return result;
                         }
                     }
                 }
-                if ((!isLastPathSegment || (flags & Constants.DotMatch) == 0) && dirSegment[0] != '.') return;
+                if ((!isLastPathSegment || (flags & Constants.DotMatch) == 0) && dirSegment[0] != '.') yield break;
                 if (FnMatch(dirSegment, ".", flags))
                 {
                     var directory = baseDirectory + "/.";
@@ -455,7 +453,7 @@ namespace GlobDir
                     {
                         directory += '/';
                     }
-                    TestPath(directory, patternEnd, true);
+                    yield return TestPath(directory, patternEnd, true);
                 }
                 if (FnMatch(dirSegment, "..", flags))
                 {
@@ -464,7 +462,7 @@ namespace GlobDir
                     {
                         directory += '/';
                     }
-                    TestPath(directory, patternEnd, true);
+                    yield return TestPath(directory, patternEnd, true);
                 }
             }
 
